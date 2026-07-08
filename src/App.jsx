@@ -4,12 +4,51 @@ import {
   Settings, Trash2, Check, Copy, Loader2
 } from "lucide-react";
 
+import { MessageCircle, Send, Mail, Phone, Lock } from "lucide-react";
+
 const FONT_DISPLAY = "'Fraunces', serif";
 const FONT_BODY = "'Karla', sans-serif";
 const FONT_MONO = "'IBM Plex Mono', monospace";
-const ADMIN_PIN = "1234";
 const PRODUCTS_KEY = "petitchef_products";
+const PIN_KEY = "petitchef_admin_pin";
+const CONTACT_KEY = "petitchef_contact";
+const DEFAULT_PIN = "1234";
+const DEFAULT_CONTACT = { type: "whatsapp", value: "", label: "Une question ?" };
 const EMOJIS = ["🧑‍🍳","🧸","🃏","👨‍🍳","📖","🥄","🍳","🧁","🍰","🥐","🍕","🍩","🧂","🥕"];
+const VIDEO_EXT = /\.(mp4|webm|mov)(\?.*)?$/i;
+
+function loadPin() {
+  try { return localStorage.getItem(PIN_KEY) || DEFAULT_PIN; } catch (e) { return DEFAULT_PIN; }
+}
+function savePin(pin) {
+  try { localStorage.setItem(PIN_KEY, pin); } catch (e) {}
+}
+function loadContact() {
+  try {
+    const raw = localStorage.getItem(CONTACT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return DEFAULT_CONTACT;
+}
+function saveContact(contact) {
+  try { localStorage.setItem(CONTACT_KEY, JSON.stringify(contact)); } catch (e) {}
+}
+function contactHref(contact) {
+  if (!contact.value) return null;
+  switch (contact.type) {
+    case "whatsapp": return `https://wa.me/${contact.value.replace(/[^\d]/g, "")}`;
+    case "telegram": return `https://t.me/${contact.value.replace("@", "")}`;
+    case "email": return `mailto:${contact.value}`;
+    case "tel": return `tel:${contact.value.replace(/[^\d+]/g, "")}`;
+    default: return null;
+  }
+}
+function contactIcon(type) {
+  if (type === "whatsapp") return MessageCircle;
+  if (type === "telegram") return Send;
+  if (type === "email") return Mail;
+  return Phone;
+}
 
 const DEFAULT_PRODUCTS = [
   { id: 1, num: "01", name: "Tablier Petit Chef", desc: "Coton épais, poche frontale, taille unique.", price: 19.9, color: "#D9A441", emoji: "🧑‍🍳" },
@@ -51,9 +90,11 @@ function ProductCard({ product, onOpen }) {
   return (
     <button onClick={() => onOpen(product)}
       className="text-left bg-[#FFFEFB] rounded-2xl overflow-hidden border border-[#EADFC7] active:scale-[0.98] transition-transform">
-      <div className="h-28 flex items-center justify-center text-5xl relative" style={{ backgroundColor: product.color + "22" }}>
+      <div className="h-28 flex items-center justify-center text-5xl relative overflow-hidden" style={{ backgroundColor: product.color + "22" }}>
         {product.image
-          ? <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+          ? (VIDEO_EXT.test(product.image)
+              ? <video src={product.image} className="w-full h-full object-cover" autoPlay muted loop playsInline />
+              : <img src={product.image} alt={product.name} className="w-full h-full object-cover" />)
           : <span>{product.emoji}</span>}
         <span style={{ fontFamily: FONT_MONO, color: product.color }}
           className="absolute top-2 left-2 text-[11px] font-semibold bg-white/80 rounded-full px-2 py-0.5">
@@ -85,7 +126,11 @@ function ProductSheet({ product, onClose, onAdd, haptic }) {
           <button onClick={onClose} className="text-[#8A7F6E]"><X size={20} /></button>
         </div>
         <div className="h-32 rounded-2xl flex items-center justify-center text-6xl mb-3 overflow-hidden" style={{ backgroundColor: product.color + "22" }}>
-          {product.image ? <img src={product.image} alt={product.name} className="w-full h-full object-cover" /> : product.emoji}
+          {product.image
+            ? (VIDEO_EXT.test(product.image)
+                ? <video src={product.image} className="w-full h-full object-cover" autoPlay muted loop playsInline />
+                : <img src={product.image} alt={product.name} className="w-full h-full object-cover" />)
+            : product.emoji}
         </div>
         <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-xl font-semibold">{product.name}</h2>
         <p className="text-[#8A7F6E] text-sm mt-1">{product.desc}</p>
@@ -221,10 +266,15 @@ function CartView({ cart, onClose, onQtyChange, onCheckout }) {
   );
 }
 
-function AdminPanel({ products, onClose, onSave }) {
+function AdminPanel({ products, contact, adminPin, onClose, onSave }) {
   const [draft, setDraft] = useState(products);
+  const [draftContact, setDraftContact] = useState(contact);
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [newPinConfirm, setNewPinConfirm] = useState("");
+  const [pinMsg, setPinMsg] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
 
   const update = (id, field, value) => {
     setDraft((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
@@ -238,7 +288,16 @@ function AdminPanel({ products, onClose, onSave }) {
       color: "#D9A441", emoji: "🍽️", image: ""
     }]);
   };
-  const handleSave = () => { onSave(draft); onClose(); };
+  const handleSave = () => {
+    let pinToSave = adminPin;
+    if (newPin) {
+      if (newPin.length < 4) { setPinMsg("4 caractères minimum"); return; }
+      if (newPin !== newPinConfirm) { setPinMsg("Les deux codes ne correspondent pas"); return; }
+      pinToSave = newPin;
+    }
+    onSave(draft, draftContact, pinToSave);
+    onClose();
+  };
 
   if (!unlocked) {
     return (
@@ -249,7 +308,7 @@ function AdminPanel({ products, onClose, onSave }) {
             className="w-full border border-[#EADFC7] rounded-xl px-3 py-2 mb-3 text-sm" placeholder="••••" />
           <div className="flex gap-2">
             <button onClick={onClose} className="flex-1 py-2 rounded-xl border border-[#EADFC7] text-sm text-[#8A7F6E]">Annuler</button>
-            <button onClick={() => pin === ADMIN_PIN ? setUnlocked(true) : setPin("")}
+            <button onClick={() => pin === adminPin ? setUnlocked(true) : setPin("")}
               className="flex-1 py-2 rounded-xl bg-[#3D2145] text-[#FBF3E7] text-sm font-semibold">Entrer</button>
           </div>
         </div>
@@ -270,6 +329,56 @@ function AdminPanel({ products, onClose, onSave }) {
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <button onClick={() => setShowSettings((s) => !s)}
+          className="w-full flex items-center justify-between bg-white rounded-2xl border border-[#EADFC7] px-4 py-3">
+          <span style={{ fontFamily: FONT_BODY }} className="text-sm font-semibold text-[#2B2320] flex items-center gap-2">
+            <Lock size={15} /> Réglages boutique
+          </span>
+          <span className="text-[#8A7F6E] text-xs">{showSettings ? "Masquer ▲" : "Afficher ▼"}</span>
+        </button>
+
+        {showSettings && (
+          <div className="bg-white rounded-2xl border border-[#EADFC7] p-4 space-y-4">
+            <div>
+              <p style={{ fontFamily: FONT_BODY }} className="text-xs font-semibold text-[#2B2320] mb-2">Changer le code admin</p>
+              <div className="flex gap-2">
+                <input type="password" placeholder="Nouveau code" value={newPin}
+                  onChange={(e) => { setNewPin(e.target.value); setPinMsg(""); }}
+                  className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm" />
+                <input type="password" placeholder="Confirmer" value={newPinConfirm}
+                  onChange={(e) => { setNewPinConfirm(e.target.value); setPinMsg(""); }}
+                  className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm" />
+              </div>
+              {pinMsg && <p className="text-[#B65C4A] text-xs mt-1">{pinMsg}</p>}
+              <p className="text-[#8A7F6E] text-[11px] mt-1">Laisse vide pour garder le code actuel. Le nouveau code s'applique en tapant "Enregistrer" en haut.</p>
+            </div>
+
+            <div className="border-t border-[#EADFC7] pt-4">
+              <p style={{ fontFamily: FONT_BODY }} className="text-xs font-semibold text-[#2B2320] mb-2">Bouton de contact</p>
+              <input value={draftContact.label}
+                onChange={(e) => setDraftContact((c) => ({ ...c, label: e.target.value }))}
+                className="w-full border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm mb-2" placeholder="Texte affiché (ex: Une question ?)" />
+              <div className="flex gap-1 mb-2">
+                {[["whatsapp","WhatsApp"],["telegram","Telegram"],["email","Email"],["tel","Téléphone"]].map(([val, lbl]) => (
+                  <button key={val} onClick={() => setDraftContact((c) => ({ ...c, type: val }))}
+                    style={{ fontFamily: FONT_MONO }}
+                    className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold border ${draftContact.type === val ? "bg-[#3D2145] text-white border-[#3D2145]" : "bg-white text-[#2B2320] border-[#EADFC7]"}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              <input value={draftContact.value}
+                onChange={(e) => setDraftContact((c) => ({ ...c, value: e.target.value }))}
+                className="w-full border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm"
+                placeholder={
+                  draftContact.type === "whatsapp" ? "Numéro avec indicatif, ex: 33612345678" :
+                  draftContact.type === "telegram" ? "@tonpseudo" :
+                  draftContact.type === "email" ? "toi@exemple.com" : "06 12 34 56 78"
+                } />
+            </div>
+          </div>
+        )}
+
         {draft.map((p) => (
           <div key={p.id} className="bg-white rounded-2xl border border-[#EADFC7] p-3">
             <div className="flex items-start gap-3">
@@ -285,7 +394,7 @@ function AdminPanel({ products, onClose, onSave }) {
                   <input type="number" step="0.1" value={p.price} onChange={(e) => update(p.id, "price", parseFloat(e.target.value) || 0)}
                     className="w-20 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" style={{ fontFamily: FONT_MONO }} />
                   <input value={p.image || ""} onChange={(e) => update(p.id, "image", e.target.value)}
-                    className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="URL image (optionnel)" />
+                    className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="URL image ou vidéo (optionnel)" />
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {EMOJIS.map((e) => (
@@ -309,11 +418,16 @@ function AdminPanel({ products, onClose, onSave }) {
 export default function App() {
   const { haptic, inTelegram } = useTelegram();
   const [products, setProducts] = useState(loadProducts());
+  const [contact, setContact] = useState(loadContact());
+  const [adminPin, setAdminPin] = useState(loadPin());
   const [selected, setSelected] = useState(null);
   const [cart, setCart] = useState([]);
   const [showCart, setShowCart] = useState(false);
   const [showCrypto, setShowCrypto] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+
+  const contactLink = contactHref(contact);
+  const ContactIcon = contactIcon(contact.type);
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const total = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
@@ -328,7 +442,11 @@ export default function App() {
   const updateQty = (id, qty) => {
     setCart((prev) => (qty <= 0 ? prev.filter((i) => i.product.id !== id) : prev.map((i) => (i.product.id === id ? { ...i, qty } : i))));
   };
-  const handleSaveProducts = (newProducts) => { setProducts(newProducts); saveProducts(newProducts); };
+  const handleSaveAll = (newProducts, newContact, newPin) => {
+    setProducts(newProducts); saveProducts(newProducts);
+    setContact(newContact); saveContact(newContact);
+    setAdminPin(newPin); savePin(newPin);
+  };
   const handlePaid = () => {
     setTimeout(() => { setCart([]); setShowCrypto(false); setShowCart(false); }, 1200);
   };
@@ -362,6 +480,13 @@ export default function App() {
         <div className="px-4 pt-4 pb-2">
           <p style={{ fontFamily: FONT_MONO }} className="text-[#B65C4A] text-xs tracking-wide">LE MENU DU JOUR</p>
           <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-2xl font-semibold mt-1">{products.length} plats à croquer</h2>
+          {contactLink && (
+            <a href={contactLink} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold rounded-full px-3 py-1.5"
+              style={{ fontFamily: FONT_BODY, backgroundColor: "#7A8B6922", color: "#7A8B69" }}>
+              <ContactIcon size={13} /> {contact.label || "Nous contacter"}
+            </a>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3 px-4 py-3 pb-24">
@@ -381,8 +506,16 @@ export default function App() {
           <CartView cart={cart} onClose={() => setShowCart(false)} onQtyChange={updateQty} onCheckout={() => setShowCrypto(true)} />
         )}
         {showCrypto && <CryptoCheckout total={total} onClose={() => setShowCrypto(false)} onPaid={handlePaid} />}
-        {showAdmin && <AdminPanel products={products} onClose={() => setShowAdmin(false)} onSave={handleSaveProducts} />}
+        {showAdmin && (
+          <AdminPanel
+            products={products}
+            contact={contact}
+            adminPin={adminPin}
+            onClose={() => setShowAdmin(false)}
+            onSave={handleSaveAll}
+          />
+        )}
       </div>
     </div>
   );
-    }
+}
