@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://yixsnueaggzhvvbzrpjx.supabase.co";
-const supabaseKey = "TA_CLE_PUBLISHABLE"; // remplace par ta clé sb_publishable_...
-
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(
+  "https://yixsnueaggzhvvbzrpjx.supabase.co",
+  "sb_publishable_OtWCxD9FgGrmZnNqZVSL0w_GEMsjzH-"
+);
