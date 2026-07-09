@@ -1,37 +1,70 @@
 import React, { useState, useEffect } from "react";
 import {
   ShoppingBag, X, Plus, Minus, ChefHat, ArrowLeft,
-  Settings, Trash2, Check, Copy, Loader2
+  Settings, Trash2, Check, Copy, Loader2,
+  MessageCircle, Send, Mail, Phone, Lock, Link2
 } from "lucide-react";
-
-import { MessageCircle, Send, Mail, Phone, Lock } from "lucide-react";
 
 const FONT_DISPLAY = "'Fraunces', serif";
 const FONT_BODY = "'Karla', sans-serif";
 const FONT_MONO = "'IBM Plex Mono', monospace";
-const PRODUCTS_KEY = "petitchef_products";
-const PIN_KEY = "petitchef_admin_pin";
-const CONTACT_KEY = "petitchef_contact";
+
+// ---- Supabase (données partagées : nom, produits, boutons, contact) ----
+const SUPABASE_URL = "https://vwablvcwbdjjisfsvjfn.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3YWJsdmN3YmRqamlzZnN2amZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1NTAwMDQsImV4cCI6MjA5OTEyNjAwNH0.8yCoBF9sbJvj64uqCldlddCME_780VvfpAamDYdj0hc";
+
+const PIN_KEY = "petitchef_admin_pin"; // reste local à l'appareil, jamais dans Supabase
 const DEFAULT_PIN = "1234";
-const DEFAULT_CONTACT = { type: "whatsapp", value: "", label: "Une question ?" };
 const EMOJIS = ["🧑‍🍳","🧸","🃏","👨‍🍳","📖","🥄","🍳","🧁","🍰","🥐","🍕","🍩","🧂","🥕"];
+const BUTTON_EMOJIS = ["📸","🌐","⭐","💬","🎥","📍","🛍️","✨"];
 const VIDEO_EXT = /\.(mp4|webm|mov)(\?.*)?$/i;
+
+const DEFAULT_STATE = {
+  shopName: "Petit Chef",
+  tagline: "La boutique du mini cuisinier",
+  products: [
+    { id: 1, num: "01", name: "Tablier Petit Chef", desc: "Coton épais, poche frontale, taille unique.", price: 19.9, color: "#D9A441", emoji: "🧑‍🍳", image: "" },
+    { id: 2, num: "02", name: "Peluche Chef Câlin", desc: "30cm, toque brodée, lavable en machine.", price: 24.5, color: "#7A8B69", emoji: "🧸", image: "" },
+    { id: 3, num: "03", name: "Cartes Recettes", desc: "Lot de 12, recettes faciles en famille.", price: 14.0, color: "#B65C4A", emoji: "🃏", image: "" },
+    { id: 4, num: "04", name: "Toque de Chef", desc: "Ajustable, broderie prénom en option.", price: 12.9, color: "#3D2145", emoji: "👨‍🍳", image: "" },
+  ],
+  contact: { type: "whatsapp", value: "", label: "Une question ?" },
+  customButtons: [], // { id, label, emoji, url }
+};
+
+async function loadState() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/shop_state?id=eq.1&select=data`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    });
+    const json = await res.json();
+    const remote = json?.[0]?.data;
+    if (remote && Object.keys(remote).length) {
+      return { ...DEFAULT_STATE, ...remote };
+    }
+  } catch (e) { console.error("Supabase load error", e); }
+  return DEFAULT_STATE;
+}
+async function saveState(state) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/shop_state?id=eq.1`, {
+      method: "PATCH",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ data: state }),
+    });
+  } catch (e) { console.error("Supabase save error", e); }
+}
 
 function loadPin() {
   try { return localStorage.getItem(PIN_KEY) || DEFAULT_PIN; } catch (e) { return DEFAULT_PIN; }
 }
 function savePin(pin) {
   try { localStorage.setItem(PIN_KEY, pin); } catch (e) {}
-}
-function loadContact() {
-  try {
-    const raw = localStorage.getItem(CONTACT_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  return DEFAULT_CONTACT;
-}
-function saveContact(contact) {
-  try { localStorage.setItem(CONTACT_KEY, JSON.stringify(contact)); } catch (e) {}
 }
 function contactHref(contact) {
   if (!contact.value) return null;
@@ -50,13 +83,6 @@ function contactIcon(type) {
   return Phone;
 }
 
-const DEFAULT_PRODUCTS = [
-  { id: 1, num: "01", name: "Tablier Petit Chef", desc: "Coton épais, poche frontale, taille unique.", price: 19.9, color: "#D9A441", emoji: "🧑‍🍳" },
-  { id: 2, num: "02", name: "Peluche Chef Câlin", desc: "30cm, toque brodée, lavable en machine.", price: 24.5, color: "#7A8B69", emoji: "🧸" },
-  { id: 3, num: "03", name: "Cartes Recettes", desc: "Lot de 12, recettes faciles en famille.", price: 14.0, color: "#B65C4A", emoji: "🃏" },
-  { id: 4, num: "04", name: "Toque de Chef", desc: "Ajustable, broderie prénom en option.", price: 12.9, color: "#3D2145", emoji: "👨‍🍳" },
-];
-
 function useTelegram() {
   const [tg] = useState(() => {
     try {
@@ -71,19 +97,16 @@ function useTelegram() {
   return { tg, haptic, inTelegram: !!tg };
 }
 
-function loadProducts() {
-  try {
-    const raw = localStorage.getItem(PRODUCTS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  return DEFAULT_PRODUCTS;
-}
-function saveProducts(products) {
-  try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products)); } catch (e) {}
-}
-
 function PriceTag({ price }) {
   return <span style={{ fontFamily: FONT_MONO }} className="text-sm">{price.toFixed(2)}&nbsp;€</span>;
+}
+
+function Media({ src, emoji, className }) {
+  if (!src) return <span>{emoji}</span>;
+  if (VIDEO_EXT.test(src)) {
+    return <video src={src} className={className} autoPlay muted loop playsInline />;
+  }
+  return <img src={src} className={className} />;
 }
 
 function ProductCard({ product, onOpen }) {
@@ -91,11 +114,7 @@ function ProductCard({ product, onOpen }) {
     <button onClick={() => onOpen(product)}
       className="text-left bg-[#FFFEFB] rounded-2xl overflow-hidden border border-[#EADFC7] active:scale-[0.98] transition-transform">
       <div className="h-28 flex items-center justify-center text-5xl relative overflow-hidden" style={{ backgroundColor: product.color + "22" }}>
-        {product.image
-          ? (VIDEO_EXT.test(product.image)
-              ? <video src={product.image} className="w-full h-full object-cover" autoPlay muted loop playsInline />
-              : <img src={product.image} alt={product.name} className="w-full h-full object-cover" />)
-          : <span>{product.emoji}</span>}
+        <Media src={product.image} emoji={product.emoji} className="w-full h-full object-cover" />
         <span style={{ fontFamily: FONT_MONO, color: product.color }}
           className="absolute top-2 left-2 text-[11px] font-semibold bg-white/80 rounded-full px-2 py-0.5">
           Plat №{product.num}
@@ -126,11 +145,7 @@ function ProductSheet({ product, onClose, onAdd, haptic }) {
           <button onClick={onClose} className="text-[#8A7F6E]"><X size={20} /></button>
         </div>
         <div className="h-32 rounded-2xl flex items-center justify-center text-6xl mb-3 overflow-hidden" style={{ backgroundColor: product.color + "22" }}>
-          {product.image
-            ? (VIDEO_EXT.test(product.image)
-                ? <video src={product.image} className="w-full h-full object-cover" autoPlay muted loop playsInline />
-                : <img src={product.image} alt={product.name} className="w-full h-full object-cover" />)
-            : product.emoji}
+          <Media src={product.image} emoji={product.emoji} className="w-full h-full object-cover" />
         </div>
         <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-xl font-semibold">{product.name}</h2>
         <p className="text-[#8A7F6E] text-sm mt-1">{product.desc}</p>
@@ -236,7 +251,7 @@ function CartView({ cart, onClose, onQtyChange, onCheckout }) {
         {cart.map((item) => (
           <div key={item.product.id} className="flex items-center gap-3 bg-white rounded-2xl p-3 border border-[#EADFC7]">
             <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 overflow-hidden" style={{ backgroundColor: item.product.color + "22" }}>
-              {item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : item.product.emoji}
+              <Media src={item.product.image} emoji={item.product.emoji} className="w-full h-full object-cover" />
             </div>
             <div className="flex-1 min-w-0">
               <p style={{ fontFamily: FONT_DISPLAY }} className="text-sm font-semibold text-[#2B2320] truncate">{item.product.name}</p>
@@ -266,36 +281,48 @@ function CartView({ cart, onClose, onQtyChange, onCheckout }) {
   );
 }
 
-function AdminPanel({ products, contact, adminPin, onClose, onSave }) {
-  const [draft, setDraft] = useState(products);
-  const [draftContact, setDraftContact] = useState(contact);
+function AdminPanel({ state, adminPin, onClose, onSave }) {
+  const [draft, setDraft] = useState(state);
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinMsg, setPinMsg] = useState("");
-  const [showSettings, setShowSettings] = useState(false);
+  const [section, setSection] = useState("shop"); // shop | contact | buttons | products
+  const [saving, setSaving] = useState(false);
 
-  const update = (id, field, value) => {
-    setDraft((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
+  const updateProduct = (id, field, value) => {
+    setDraft((prev) => ({ ...prev, products: prev.products.map((p) => (p.id === id ? { ...p, [field]: value } : p)) }));
   };
-  const remove = (id) => setDraft((prev) => prev.filter((p) => p.id !== id));
-  const addNew = () => {
-    const nextId = Math.max(0, ...draft.map((p) => p.id)) + 1;
-    setDraft((prev) => [...prev, {
+  const removeProduct = (id) => setDraft((prev) => ({ ...prev, products: prev.products.filter((p) => p.id !== id) }));
+  const addProduct = () => {
+    const nextId = Math.max(0, ...draft.products.map((p) => p.id)) + 1;
+    setDraft((prev) => ({ ...prev, products: [...prev.products, {
       id: nextId, num: String(nextId).padStart(2, "0"),
       name: "Nouveau produit", desc: "Description à modifier", price: 9.9,
       color: "#D9A441", emoji: "🍽️", image: ""
-    }]);
+    }] }));
   };
-  const handleSave = () => {
+
+  const updateButton = (id, field, value) => {
+    setDraft((prev) => ({ ...prev, customButtons: prev.customButtons.map((b) => (b.id === id ? { ...b, [field]: value } : b)) }));
+  };
+  const removeButton = (id) => setDraft((prev) => ({ ...prev, customButtons: prev.customButtons.filter((b) => b.id !== id) }));
+  const addButton = () => {
+    const nextId = Math.max(0, ...draft.customButtons.map((b) => b.id), 0) + 1;
+    setDraft((prev) => ({ ...prev, customButtons: [...prev.customButtons, { id: nextId, label: "Instagram", emoji: "📸", url: "" }] }));
+  };
+
+  const handleSave = async () => {
     let pinToSave = adminPin;
     if (newPin) {
       if (newPin.length < 4) { setPinMsg("4 caractères minimum"); return; }
       if (newPin !== newPinConfirm) { setPinMsg("Les deux codes ne correspondent pas"); return; }
       pinToSave = newPin;
     }
-    onSave(draft, draftContact, pinToSave);
+    setSaving(true);
+    await onSave(draft, pinToSave);
+    setSaving(false);
     onClose();
   };
 
@@ -316,31 +343,52 @@ function AdminPanel({ products, contact, adminPin, onClose, onSave }) {
     );
   }
 
+  const TABS = [
+    ["shop", "Boutique"],
+    ["contact", "Contact"],
+    ["buttons", "Boutons"],
+    ["products", "Produits"],
+  ];
+
   return (
     <div className="fixed inset-0 z-50 bg-[#FBF3E7] flex flex-col max-w-sm mx-auto">
       <div className="flex items-center justify-between px-4 py-4 border-b border-[#EADFC7]">
         <div className="flex items-center gap-3">
           <button onClick={onClose}><ArrowLeft size={20} className="text-[#2B2320]" /></button>
-          <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-lg font-semibold text-[#2B2320]">Gérer les produits</h2>
+          <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-lg font-semibold text-[#2B2320]">Administration</h2>
         </div>
-        <button onClick={handleSave} style={{ fontFamily: FONT_BODY }}
-          className="text-sm font-semibold bg-[#7A8B69] text-white rounded-full px-4 py-1.5">
-          Enregistrer
+        <button onClick={handleSave} disabled={saving} style={{ fontFamily: FONT_BODY }}
+          className="text-sm font-semibold bg-[#7A8B69] text-white rounded-full px-4 py-1.5 disabled:opacity-60">
+          {saving ? "..." : "Enregistrer"}
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        <button onClick={() => setShowSettings((s) => !s)}
-          className="w-full flex items-center justify-between bg-white rounded-2xl border border-[#EADFC7] px-4 py-3">
-          <span style={{ fontFamily: FONT_BODY }} className="text-sm font-semibold text-[#2B2320] flex items-center gap-2">
-            <Lock size={15} /> Réglages boutique
-          </span>
-          <span className="text-[#8A7F6E] text-xs">{showSettings ? "Masquer ▲" : "Afficher ▼"}</span>
-        </button>
 
-        {showSettings && (
-          <div className="bg-white rounded-2xl border border-[#EADFC7] p-4 space-y-4">
-            <div>
-              <p style={{ fontFamily: FONT_BODY }} className="text-xs font-semibold text-[#2B2320] mb-2">Changer le code admin</p>
+      <div className="flex px-4 pt-3 gap-1 border-b border-[#EADFC7] overflow-x-auto">
+        {TABS.map(([val, lbl]) => (
+          <button key={val} onClick={() => setSection(val)}
+            style={{ fontFamily: FONT_BODY }}
+            className={`px-3 py-2 text-xs font-semibold whitespace-nowrap border-b-2 ${section === val ? "border-[#3D2145] text-[#2B2320]" : "border-transparent text-[#8A7F6E]"}`}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {section === "shop" && (
+          <div className="space-y-3">
+            <div className="bg-white rounded-2xl border border-[#EADFC7] p-4">
+              <p className="text-xs font-semibold text-[#2B2320] mb-2" style={{ fontFamily: FONT_BODY }}>Nom de la boutique</p>
+              <input value={draft.shopName} onChange={(e) => setDraft((d) => ({ ...d, shopName: e.target.value }))}
+                className="w-full border border-[#EADFC7] rounded-lg px-3 py-2 text-sm font-semibold" placeholder="Petit Chef" />
+              <p className="text-xs font-semibold text-[#2B2320] mt-3 mb-2" style={{ fontFamily: FONT_BODY }}>Sous-titre</p>
+              <input value={draft.tagline} onChange={(e) => setDraft((d) => ({ ...d, tagline: e.target.value }))}
+                className="w-full border border-[#EADFC7] rounded-lg px-3 py-2 text-sm" placeholder="La boutique du mini cuisinier" />
+            </div>
+
+            <div className="bg-white rounded-2xl border border-[#EADFC7] p-4">
+              <p className="text-xs font-semibold text-[#2B2320] mb-2 flex items-center gap-2" style={{ fontFamily: FONT_BODY }}>
+                <Lock size={14} /> Code administrateur
+              </p>
               <div className="flex gap-2">
                 <input type="password" placeholder="Nouveau code" value={newPin}
                   onChange={(e) => { setNewPin(e.target.value); setPinMsg(""); }}
@@ -350,66 +398,99 @@ function AdminPanel({ products, contact, adminPin, onClose, onSave }) {
                   className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm" />
               </div>
               {pinMsg && <p className="text-[#B65C4A] text-xs mt-1">{pinMsg}</p>}
-              <p className="text-[#8A7F6E] text-[11px] mt-1">Laisse vide pour garder le code actuel. Le nouveau code s'applique en tapant "Enregistrer" en haut.</p>
-            </div>
-
-            <div className="border-t border-[#EADFC7] pt-4">
-              <p style={{ fontFamily: FONT_BODY }} className="text-xs font-semibold text-[#2B2320] mb-2">Bouton de contact</p>
-              <input value={draftContact.label}
-                onChange={(e) => setDraftContact((c) => ({ ...c, label: e.target.value }))}
-                className="w-full border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm mb-2" placeholder="Texte affiché (ex: Une question ?)" />
-              <div className="flex gap-1 mb-2">
-                {[["whatsapp","WhatsApp"],["telegram","Telegram"],["email","Email"],["tel","Téléphone"]].map(([val, lbl]) => (
-                  <button key={val} onClick={() => setDraftContact((c) => ({ ...c, type: val }))}
-                    style={{ fontFamily: FONT_MONO }}
-                    className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold border ${draftContact.type === val ? "bg-[#3D2145] text-white border-[#3D2145]" : "bg-white text-[#2B2320] border-[#EADFC7]"}`}>
-                    {lbl}
-                  </button>
-                ))}
-              </div>
-              <input value={draftContact.value}
-                onChange={(e) => setDraftContact((c) => ({ ...c, value: e.target.value }))}
-                className="w-full border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm"
-                placeholder={
-                  draftContact.type === "whatsapp" ? "Numéro avec indicatif, ex: 33612345678" :
-                  draftContact.type === "telegram" ? "@tonpseudo" :
-                  draftContact.type === "email" ? "toi@exemple.com" : "06 12 34 56 78"
-                } />
+              <p className="text-[#8A7F6E] text-[11px] mt-1">Laisse vide pour garder le code actuel. Ce code reste propre à cet appareil.</p>
             </div>
           </div>
         )}
 
-        {draft.map((p) => (
-          <div key={p.id} className="bg-white rounded-2xl border border-[#EADFC7] p-3">
-            <div className="flex items-start gap-3">
-              <div className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl shrink-0 overflow-hidden" style={{ backgroundColor: p.color + "22" }}>
-                {p.image ? <img src={p.image} className="w-full h-full object-cover" /> : p.emoji}
-              </div>
-              <div className="flex-1 space-y-2">
-                <input value={p.name} onChange={(e) => update(p.id, "name", e.target.value)}
-                  className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-sm font-semibold" placeholder="Nom du produit" />
-                <input value={p.desc} onChange={(e) => update(p.id, "desc", e.target.value)}
-                  className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="Description" />
-                <div className="flex gap-2">
-                  <input type="number" step="0.1" value={p.price} onChange={(e) => update(p.id, "price", parseFloat(e.target.value) || 0)}
-                    className="w-20 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" style={{ fontFamily: FONT_MONO }} />
-                  <input value={p.image || ""} onChange={(e) => update(p.id, "image", e.target.value)}
-                    className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="URL image ou vidéo (optionnel)" />
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {EMOJIS.map((e) => (
-                    <button key={e} onClick={() => update(p.id, "emoji", e)}
-                      className={`text-lg px-1.5 rounded ${p.emoji === e ? "bg-[#EADFC7]" : ""}`}>{e}</button>
-                  ))}
-                </div>
-              </div>
-              <button onClick={() => remove(p.id)} className="text-[#B65C4A] shrink-0"><Trash2 size={18} /></button>
+        {section === "contact" && (
+          <div className="bg-white rounded-2xl border border-[#EADFC7] p-4">
+            <p className="text-xs font-semibold text-[#2B2320] mb-2" style={{ fontFamily: FONT_BODY }}>Texte du bouton</p>
+            <input value={draft.contact.label}
+              onChange={(e) => setDraft((d) => ({ ...d, contact: { ...d.contact, label: e.target.value } }))}
+              className="w-full border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm mb-3" placeholder="Une question ?" />
+            <div className="flex gap-1 mb-3">
+              {[["whatsapp","WhatsApp"],["telegram","Telegram"],["email","Email"],["tel","Téléphone"]].map(([val, lbl]) => (
+                <button key={val} onClick={() => setDraft((d) => ({ ...d, contact: { ...d.contact, type: val } }))}
+                  style={{ fontFamily: FONT_MONO }}
+                  className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold border ${draft.contact.type === val ? "bg-[#3D2145] text-white border-[#3D2145]" : "bg-white text-[#2B2320] border-[#EADFC7]"}`}>
+                  {lbl}
+                </button>
+              ))}
             </div>
+            <input value={draft.contact.value}
+              onChange={(e) => setDraft((d) => ({ ...d, contact: { ...d.contact, value: e.target.value } }))}
+              className="w-full border border-[#EADFC7] rounded-lg px-2 py-1.5 text-sm"
+              placeholder={
+                draft.contact.type === "whatsapp" ? "Numéro avec indicatif, ex: 33612345678" :
+                draft.contact.type === "telegram" ? "@tonpseudo" :
+                draft.contact.type === "email" ? "toi@exemple.com" : "06 12 34 56 78"
+              } />
           </div>
-        ))}
-        <button onClick={addNew} className="w-full py-3 rounded-2xl border-2 border-dashed border-[#EADFC7] text-[#8A7F6E] text-sm font-semibold" style={{ fontFamily: FONT_BODY }}>
-          + Ajouter un produit
-        </button>
+        )}
+
+        {section === "buttons" && (
+          <>
+            {draft.customButtons.map((b) => (
+              <div key={b.id} className="bg-white rounded-2xl border border-[#EADFC7] p-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 space-y-2">
+                    <input value={b.label} onChange={(e) => updateButton(b.id, "label", e.target.value)}
+                      className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-sm font-semibold" placeholder="Texte du bouton" />
+                    <input value={b.url} onChange={(e) => updateButton(b.id, "url", e.target.value)}
+                      className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="https://instagram.com/..." />
+                    <div className="flex flex-wrap gap-1">
+                      {BUTTON_EMOJIS.map((e) => (
+                        <button key={e} onClick={() => updateButton(b.id, "emoji", e)}
+                          className={`text-lg px-1.5 rounded ${b.emoji === e ? "bg-[#EADFC7]" : ""}`}>{e}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={() => removeButton(b.id)} className="text-[#B65C4A] shrink-0"><Trash2 size={18} /></button>
+                </div>
+              </div>
+            ))}
+            <button onClick={addButton} className="w-full py-3 rounded-2xl border-2 border-dashed border-[#EADFC7] text-[#8A7F6E] text-sm font-semibold flex items-center justify-center gap-2" style={{ fontFamily: FONT_BODY }}>
+              <Link2 size={15} /> Ajouter un bouton
+            </button>
+          </>
+        )}
+
+        {section === "products" && (
+          <>
+            {draft.products.map((p) => (
+              <div key={p.id} className="bg-white rounded-2xl border border-[#EADFC7] p-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl shrink-0 overflow-hidden" style={{ backgroundColor: p.color + "22" }}>
+                    <Media src={p.image} emoji={p.emoji} className="w-full h-full object-cover" />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <input value={p.name} onChange={(e) => updateProduct(p.id, "name", e.target.value)}
+                      className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-sm font-semibold" placeholder="Nom du produit" />
+                    <input value={p.desc} onChange={(e) => updateProduct(p.id, "desc", e.target.value)}
+                      className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="Description" />
+                    <div className="flex gap-2">
+                      <input type="number" step="0.1" value={p.price} onChange={(e) => updateProduct(p.id, "price", parseFloat(e.target.value) || 0)}
+                        className="w-20 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" style={{ fontFamily: FONT_MONO }} />
+                      <input value={p.image || ""} onChange={(e) => updateProduct(p.id, "image", e.target.value)}
+                        className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="URL image ou vidéo" />
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {EMOJIS.map((e) => (
+                        <button key={e} onClick={() => updateProduct(p.id, "emoji", e)}
+                          className={`text-lg px-1.5 rounded ${p.emoji === e ? "bg-[#EADFC7]" : ""}`}>{e}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={() => removeProduct(p.id)} className="text-[#B65C4A] shrink-0"><Trash2 size={18} /></button>
+                </div>
+              </div>
+            ))}
+            <button onClick={addProduct} className="w-full py-3 rounded-2xl border-2 border-dashed border-[#EADFC7] text-[#8A7F6E] text-sm font-semibold" style={{ fontFamily: FONT_BODY }}>
+              + Ajouter un produit
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -417,8 +498,8 @@ function AdminPanel({ products, contact, adminPin, onClose, onSave }) {
 
 export default function App() {
   const { haptic, inTelegram } = useTelegram();
-  const [products, setProducts] = useState(loadProducts());
-  const [contact, setContact] = useState(loadContact());
+  const [state, setState] = useState(DEFAULT_STATE);
+  const [loading, setLoading] = useState(true);
   const [adminPin, setAdminPin] = useState(loadPin());
   const [selected, setSelected] = useState(null);
   const [cart, setCart] = useState([]);
@@ -426,8 +507,12 @@ export default function App() {
   const [showCrypto, setShowCrypto] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
 
-  const contactLink = contactHref(contact);
-  const ContactIcon = contactIcon(contact.type);
+  useEffect(() => {
+    loadState().then((s) => { setState(s); setLoading(false); });
+  }, []);
+
+  const contactLink = contactHref(state.contact);
+  const ContactIcon = contactIcon(state.contact.type);
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const total = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
@@ -442,10 +527,11 @@ export default function App() {
   const updateQty = (id, qty) => {
     setCart((prev) => (qty <= 0 ? prev.filter((i) => i.product.id !== id) : prev.map((i) => (i.product.id === id ? { ...i, qty } : i))));
   };
-  const handleSaveAll = (newProducts, newContact, newPin) => {
-    setProducts(newProducts); saveProducts(newProducts);
-    setContact(newContact); saveContact(newContact);
-    setAdminPin(newPin); savePin(newPin);
+  const handleSaveAll = async (newState, newPin) => {
+    setState(newState);
+    await saveState(newState);
+    setAdminPin(newPin);
+    savePin(newPin);
   };
   const handlePaid = () => {
     setTimeout(() => { setCart([]); setShowCrypto(false); setShowCart(false); }, 1200);
@@ -460,8 +546,8 @@ export default function App() {
               <ChefHat size={18} className="text-[#FBF3E7]" />
             </div>
             <div>
-              <h1 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-lg font-semibold leading-none">Petit Chef</h1>
-              <p className="text-[#8A7F6E] text-[11px] mt-0.5">{inTelegram ? "Boutique Telegram" : "Aperçu navigateur"}</p>
+              <h1 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-lg font-semibold leading-none">{state.shopName}</h1>
+              <p className="text-[#8A7F6E] text-[11px] mt-0.5">{state.tagline}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -479,19 +565,33 @@ export default function App() {
 
         <div className="px-4 pt-4 pb-2">
           <p style={{ fontFamily: FONT_MONO }} className="text-[#B65C4A] text-xs tracking-wide">LE MENU DU JOUR</p>
-          <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-2xl font-semibold mt-1">{products.length} plats à croquer</h2>
-          {contactLink && (
-            <a href={contactLink} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold rounded-full px-3 py-1.5"
-              style={{ fontFamily: FONT_BODY, backgroundColor: "#7A8B6922", color: "#7A8B69" }}>
-              <ContactIcon size={13} /> {contact.label || "Nous contacter"}
-            </a>
-          )}
+          <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-2xl font-semibold mt-1">{state.products.length} plats à croquer</h2>
+
+          <div className="flex flex-wrap gap-2 mt-2">
+            {contactLink && (
+              <a href={contactLink} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5"
+                style={{ fontFamily: FONT_BODY, backgroundColor: "#7A8B6922", color: "#7A8B69" }}>
+                <ContactIcon size={13} /> {state.contact.label || "Nous contacter"}
+              </a>
+            )}
+            {state.customButtons.filter(b => b.url).map((b) => (
+              <a key={b.id} href={b.url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5"
+                style={{ fontFamily: FONT_BODY, backgroundColor: "#D9A44122", color: "#B8862F" }}>
+                <span>{b.emoji}</span> {b.label}
+              </a>
+            ))}
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 px-4 py-3 pb-24">
-          {products.map((p) => <ProductCard key={p.id} product={p} onOpen={setSelected} />)}
-        </div>
+        {loading ? (
+          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-[#8A7F6E]" /></div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 px-4 py-3 pb-24">
+            {state.products.map((p) => <ProductCard key={p.id} product={p} onOpen={setSelected} />)}
+          </div>
+        )}
 
         {cartCount > 0 && !showCart && (
           <button onClick={() => setShowCart(true)} style={{ fontFamily: FONT_BODY }}
@@ -508,8 +608,7 @@ export default function App() {
         {showCrypto && <CryptoCheckout total={total} onClose={() => setShowCrypto(false)} onPaid={handlePaid} />}
         {showAdmin && (
           <AdminPanel
-            products={products}
-            contact={contact}
+            state={state}
             adminPin={adminPin}
             onClose={() => setShowAdmin(false)}
             onSave={handleSaveAll}
