@@ -2,18 +2,18 @@ import React, { useState, useEffect } from "react";
 import {
   ShoppingBag, X, Plus, Minus, ChefHat, ArrowLeft,
   Settings, Trash2, Check, Copy, Loader2,
-  MessageCircle, Send, Mail, Phone, Lock, Link2
+  MessageCircle, Send, Mail, Phone, Lock, Link2, Camera, Image as ImageIcon
 } from "lucide-react";
 
 const FONT_DISPLAY = "'Fraunces', serif";
 const FONT_BODY = "'Karla', sans-serif";
 const FONT_MONO = "'IBM Plex Mono', monospace";
 
-// ---- Supabase (données partagées : nom, produits, boutons, contact) ----
 const SUPABASE_URL = "https://vwablvcwbdjjisfsvjfn.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3YWJsdmN3YmRqamlzZnN2amZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1NTAwMDQsImV4cCI6MjA5OTEyNjAwNH0.8yCoBF9sbJvj64uqCldlddCME_780VvfpAamDYdj0hc";
+const STORAGE_BUCKET = "products";
 
-const PIN_KEY = "petitchef_admin_pin"; // reste local à l'appareil, jamais dans Supabase
+const PIN_KEY = "petitchef_admin_pin";
 const DEFAULT_PIN = "1234";
 const EMOJIS = ["🧑‍🍳","🧸","🃏","👨‍🍳","📖","🥄","🍳","🧁","🍰","🥐","🍕","🍩","🧂","🥕"];
 const BUTTON_EMOJIS = ["📸","🌐","⭐","💬","🎥","📍","🛍️","✨"];
@@ -23,13 +23,13 @@ const DEFAULT_STATE = {
   shopName: "Petit Chef",
   tagline: "La boutique du mini cuisinier",
   products: [
-    { id: 1, num: "01", name: "Tablier Petit Chef", desc: "Coton épais, poche frontale, taille unique.", price: 19.9, color: "#D9A441", emoji: "🧑‍🍳", image: "" },
-    { id: 2, num: "02", name: "Peluche Chef Câlin", desc: "30cm, toque brodée, lavable en machine.", price: 24.5, color: "#7A8B69", emoji: "🧸", image: "" },
-    { id: 3, num: "03", name: "Cartes Recettes", desc: "Lot de 12, recettes faciles en famille.", price: 14.0, color: "#B65C4A", emoji: "🃏", image: "" },
-    { id: 4, num: "04", name: "Toque de Chef", desc: "Ajustable, broderie prénom en option.", price: 12.9, color: "#3D2145", emoji: "👨‍🍳", image: "" },
+    { id: 1, num: "01", name: "Tablier Petit Chef", desc: "Coton épais, poche frontale, taille unique.", price: 19.9, color: "#D9A441", emoji: "🧑‍🍳", image: "", variants: [] },
+    { id: 2, num: "02", name: "Peluche Chef Câlin", desc: "30cm, toque brodée, lavable en machine.", price: 24.5, color: "#7A8B69", emoji: "🧸", image: "", variants: [] },
+    { id: 3, num: "03", name: "Cartes Recettes", desc: "Lot de 12, recettes faciles en famille.", price: 14.0, color: "#B65C4A", emoji: "🃏", image: "", variants: [] },
+    { id: 4, num: "04", name: "Toque de Chef", desc: "Ajustable, broderie prénom en option.", price: 12.9, color: "#3D2145", emoji: "👨‍🍳", image: "", variants: [] },
   ],
   contact: { type: "whatsapp", value: "", label: "Une question ?" },
-  customButtons: [], // { id, label, emoji, url }
+  customButtons: [],
 };
 
 async function loadState() {
@@ -40,7 +40,7 @@ async function loadState() {
     const json = await res.json();
     const remote = json?.[0]?.data;
     if (remote && Object.keys(remote).length) {
-      return { ...DEFAULT_STATE, ...remote };
+      return { ...DEFAULT_STATE, ...remote, products: (remote.products || []).map(p => ({ variants: [], ...p })) };
     }
   } catch (e) { console.error("Supabase load error", e); }
   return DEFAULT_STATE;
@@ -58,6 +58,22 @@ async function saveState(state) {
       body: JSON.stringify({ data: state }),
     });
   } catch (e) { console.error("Supabase save error", e); }
+}
+
+async function uploadMedia(file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `product-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  if (!res.ok) throw new Error("Échec de l'upload");
+  return `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
 }
 
 function loadPin() {
@@ -97,8 +113,8 @@ function useTelegram() {
   return { tg, haptic, inTelegram: !!tg };
 }
 
-function PriceTag({ price }) {
-  return <span style={{ fontFamily: FONT_MONO }} className="text-sm">{price.toFixed(2)}&nbsp;€</span>;
+function PriceTag({ price, prefix }) {
+  return <span style={{ fontFamily: FONT_MONO }} className="text-sm">{prefix}{price.toFixed(2)}&nbsp;€</span>;
 }
 
 function Media({ src, emoji, className }) {
@@ -109,7 +125,15 @@ function Media({ src, emoji, className }) {
   return <img src={src} className={className} />;
 }
 
+function displayPrice(product) {
+  if (product.variants && product.variants.length > 0) {
+    return Math.min(...product.variants.map((v) => v.price));
+  }
+  return product.price;
+}
+
 function ProductCard({ product, onOpen }) {
+  const hasVariants = product.variants && product.variants.length > 0;
   return (
     <button onClick={() => onOpen(product)}
       className="text-left bg-[#FFFEFB] rounded-2xl overflow-hidden border border-[#EADFC7] active:scale-[0.98] transition-transform">
@@ -124,7 +148,7 @@ function ProductCard({ product, onOpen }) {
         <h3 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-[15px] leading-tight font-semibold">{product.name}</h3>
         <p className="text-[#8A7F6E] text-xs mt-1 leading-snug line-clamp-2">{product.desc}</p>
         <div className="mt-2 flex items-center justify-between">
-          <PriceTag price={product.price} />
+          <PriceTag price={displayPrice(product)} prefix={hasVariants ? "dès " : ""} />
           <span className="text-xs font-semibold rounded-full px-2 py-1" style={{ backgroundColor: product.color, color: "#FFFEFB", fontFamily: FONT_BODY }}>+ Ajouter</span>
         </div>
       </div>
@@ -134,8 +158,13 @@ function ProductCard({ product, onOpen }) {
 
 function ProductSheet({ product, onClose, onAdd, haptic }) {
   const [qty, setQty] = useState(1);
-  useEffect(() => setQty(1), [product]);
+  const [variantIdx, setVariantIdx] = useState(0);
+  useEffect(() => { setQty(1); setVariantIdx(0); }, [product]);
   if (!product) return null;
+  const hasVariants = product.variants && product.variants.length > 0;
+  const unitPrice = hasVariants ? product.variants[variantIdx].price : product.price;
+  const variant = hasVariants ? product.variants[variantIdx] : null;
+
   return (
     <div className="fixed inset-0 z-30 flex items-end justify-center">
       <div className="absolute inset-0 bg-[#2B2320]/50" onClick={onClose} />
@@ -149,15 +178,28 @@ function ProductSheet({ product, onClose, onAdd, haptic }) {
         </div>
         <h2 style={{ fontFamily: FONT_DISPLAY }} className="text-[#2B2320] text-xl font-semibold">{product.name}</h2>
         <p className="text-[#8A7F6E] text-sm mt-1">{product.desc}</p>
+
+        {hasVariants && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            {product.variants.map((v, i) => (
+              <button key={i} onClick={() => setVariantIdx(i)}
+                style={{ fontFamily: FONT_MONO }}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold border ${variantIdx === i ? "bg-[#3D2145] text-white border-[#3D2145]" : "bg-white text-[#2B2320] border-[#EADFC7]"}`}>
+                {v.label} · {v.price.toFixed(2)}€
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center justify-between mt-5">
           <div className="flex items-center gap-3 bg-white rounded-full px-3 py-2 border border-[#EADFC7]">
             <button onClick={() => { setQty(q => Math.max(1, q - 1)); haptic(); }}><Minus size={16} /></button>
             <span style={{ fontFamily: FONT_MONO }} className="w-4 text-center">{qty}</span>
             <button onClick={() => { setQty(q => q + 1); haptic(); }}><Plus size={16} /></button>
           </div>
-          <PriceTag price={product.price * qty} />
+          <PriceTag price={unitPrice * qty} prefix="" />
         </div>
-        <button onClick={() => { onAdd(product, qty); haptic("medium"); onClose(); }}
+        <button onClick={() => { onAdd(product, qty, variant); haptic("medium"); onClose(); }}
           style={{ backgroundColor: product.color, fontFamily: FONT_BODY }}
           className="w-full mt-5 text-[#FFFEFB] font-semibold rounded-full py-3 text-sm">
           Ajouter au panier
@@ -239,7 +281,7 @@ function CryptoCheckout({ total, onClose, onPaid }) {
 }
 
 function CartView({ cart, onClose, onQtyChange, onCheckout }) {
-  const total = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const total = cart.reduce((s, i) => s + i.unitPrice * i.qty, 0);
   return (
     <div className="fixed inset-0 z-40 bg-[#FBF3E7] flex flex-col max-w-sm mx-auto">
       <div className="flex items-center gap-3 px-4 py-4 border-b border-[#EADFC7]">
@@ -249,18 +291,20 @@ function CartView({ cart, onClose, onQtyChange, onCheckout }) {
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {cart.length === 0 && <p className="text-[#8A7F6E] text-sm mt-10 text-center">Panier vide — allez choisir un plat.</p>}
         {cart.map((item) => (
-          <div key={item.product.id} className="flex items-center gap-3 bg-white rounded-2xl p-3 border border-[#EADFC7]">
+          <div key={item.key} className="flex items-center gap-3 bg-white rounded-2xl p-3 border border-[#EADFC7]">
             <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 overflow-hidden" style={{ backgroundColor: item.product.color + "22" }}>
               <Media src={item.product.image} emoji={item.product.emoji} className="w-full h-full object-cover" />
             </div>
             <div className="flex-1 min-w-0">
-              <p style={{ fontFamily: FONT_DISPLAY }} className="text-sm font-semibold text-[#2B2320] truncate">{item.product.name}</p>
-              <PriceTag price={item.product.price} />
+              <p style={{ fontFamily: FONT_DISPLAY }} className="text-sm font-semibold text-[#2B2320] truncate">
+                {item.product.name}{item.variant ? ` · ${item.variant.label}` : ""}
+              </p>
+              <PriceTag price={item.unitPrice} prefix="" />
             </div>
             <div className="flex items-center gap-2 bg-[#FBF3E7] rounded-full px-2 py-1">
-              <button onClick={() => onQtyChange(item.product.id, item.qty - 1)}><Minus size={14} /></button>
+              <button onClick={() => onQtyChange(item.key, item.qty - 1)}><Minus size={14} /></button>
               <span style={{ fontFamily: FONT_MONO }} className="w-4 text-center text-xs">{item.qty}</span>
-              <button onClick={() => onQtyChange(item.product.id, item.qty + 1)}><Plus size={14} /></button>
+              <button onClick={() => onQtyChange(item.key, item.qty + 1)}><Plus size={14} /></button>
             </div>
           </div>
         ))}
@@ -281,6 +325,88 @@ function CartView({ cart, onClose, onQtyChange, onCheckout }) {
   );
 }
 
+function ProductAdminRow({ p, update, remove }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const url = await uploadMedia(file);
+      update(p.id, "image", url);
+    } catch (err) {
+      setError("Échec de l'envoi, réessaie");
+    }
+    setUploading(false);
+  };
+
+  const variants = p.variants || [];
+  const updateVariant = (idx, field, value) => {
+    const next = variants.map((v, i) => (i === idx ? { ...v, [field]: value } : v));
+    update(p.id, "variants", next);
+  };
+  const removeVariant = (idx) => update(p.id, "variants", variants.filter((_, i) => i !== idx));
+  const addVariant = () => update(p.id, "variants", [...variants, { label: "100g", price: 0 }]);
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#EADFC7] p-3">
+      <div className="flex items-start gap-3">
+        <div className="relative w-14 h-14 rounded-xl flex items-center justify-center text-2xl shrink-0 overflow-hidden" style={{ backgroundColor: p.color + "22" }}>
+          <Media src={p.image} emoji={p.emoji} className="w-full h-full object-cover" />
+          {uploading && (
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin text-white" />
+            </div>
+          )}
+        </div>
+        <div className="flex-1 space-y-2">
+          <input value={p.name} onChange={(e) => update(p.id, "name", e.target.value)}
+            className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-sm font-semibold" placeholder="Nom du produit" />
+          <input value={p.desc} onChange={(e) => update(p.id, "desc", e.target.value)}
+            className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="Description" />
+
+          <label className="flex items-center justify-center gap-2 border border-dashed border-[#D9A441] text-[#B8862F] rounded-lg px-2 py-2 text-xs font-semibold cursor-pointer">
+            <ImageIcon size={14} />
+            {uploading ? "Envoi en cours..." : "Choisir photo/vidéo depuis la galerie"}
+            <input type="file" accept="image/*,video/*" className="hidden" onChange={handleFile} disabled={uploading} />
+          </label>
+          {error && <p className="text-[#B65C4A] text-[11px]">{error}</p>}
+
+          {variants.length === 0 && (
+            <input type="number" step="0.1" value={p.price} onChange={(e) => update(p.id, "price", parseFloat(e.target.value) || 0)}
+              className="w-24 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" style={{ fontFamily: FONT_MONO }} placeholder="Prix €" />
+          )}
+
+          <div className="border-t border-[#EADFC7] pt-2">
+            <p className="text-[11px] font-semibold text-[#8A7F6E] mb-1">Options de prix (poids, taille...)</p>
+            {variants.map((v, idx) => (
+              <div key={idx} className="flex gap-2 mb-1">
+                <input value={v.label} onChange={(e) => updateVariant(idx, "label", e.target.value)}
+                  className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="ex: 100g" />
+                <input type="number" step="0.1" value={v.price} onChange={(e) => updateVariant(idx, "price", parseFloat(e.target.value) || 0)}
+                  className="w-20 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" style={{ fontFamily: FONT_MONO }} placeholder="Prix €" />
+                <button onClick={() => removeVariant(idx)} className="text-[#B65C4A]"><Trash2 size={16} /></button>
+              </div>
+            ))}
+            <button onClick={addVariant} className="text-[11px] font-semibold text-[#7A8B69] mt-1">+ Ajouter une option de prix</button>
+          </div>
+
+          <div className="flex flex-wrap gap-1">
+            {EMOJIS.map((e) => (
+              <button key={e} onClick={() => update(p.id, "emoji", e)}
+                className={`text-lg px-1.5 rounded ${p.emoji === e ? "bg-[#EADFC7]" : ""}`}>{e}</button>
+            ))}
+          </div>
+        </div>
+        <button onClick={() => remove(p.id)} className="text-[#B65C4A] shrink-0"><Trash2 size={18} /></button>
+      </div>
+    </div>
+  );
+}
+
 function AdminPanel({ state, adminPin, onClose, onSave }) {
   const [draft, setDraft] = useState(state);
   const [unlocked, setUnlocked] = useState(false);
@@ -288,7 +414,7 @@ function AdminPanel({ state, adminPin, onClose, onSave }) {
   const [newPin, setNewPin] = useState("");
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinMsg, setPinMsg] = useState("");
-  const [section, setSection] = useState("shop"); // shop | contact | buttons | products
+  const [section, setSection] = useState("shop");
   const [saving, setSaving] = useState(false);
 
   const updateProduct = (id, field, value) => {
@@ -300,7 +426,7 @@ function AdminPanel({ state, adminPin, onClose, onSave }) {
     setDraft((prev) => ({ ...prev, products: [...prev.products, {
       id: nextId, num: String(nextId).padStart(2, "0"),
       name: "Nouveau produit", desc: "Description à modifier", price: 9.9,
-      color: "#D9A441", emoji: "🍽️", image: ""
+      color: "#D9A441", emoji: "🍽️", image: "", variants: []
     }] }));
   };
 
@@ -343,12 +469,7 @@ function AdminPanel({ state, adminPin, onClose, onSave }) {
     );
   }
 
-  const TABS = [
-    ["shop", "Boutique"],
-    ["contact", "Contact"],
-    ["buttons", "Boutons"],
-    ["products", "Produits"],
-  ];
+  const TABS = [["shop", "Boutique"], ["contact", "Contact"], ["buttons", "Boutons"], ["products", "Produits"]];
 
   return (
     <div className="fixed inset-0 z-50 bg-[#FBF3E7] flex flex-col max-w-sm mx-auto">
@@ -384,7 +505,6 @@ function AdminPanel({ state, adminPin, onClose, onSave }) {
               <input value={draft.tagline} onChange={(e) => setDraft((d) => ({ ...d, tagline: e.target.value }))}
                 className="w-full border border-[#EADFC7] rounded-lg px-3 py-2 text-sm" placeholder="La boutique du mini cuisinier" />
             </div>
-
             <div className="bg-white rounded-2xl border border-[#EADFC7] p-4">
               <p className="text-xs font-semibold text-[#2B2320] mb-2 flex items-center gap-2" style={{ fontFamily: FONT_BODY }}>
                 <Lock size={14} /> Code administrateur
@@ -459,32 +579,7 @@ function AdminPanel({ state, adminPin, onClose, onSave }) {
         {section === "products" && (
           <>
             {draft.products.map((p) => (
-              <div key={p.id} className="bg-white rounded-2xl border border-[#EADFC7] p-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl shrink-0 overflow-hidden" style={{ backgroundColor: p.color + "22" }}>
-                    <Media src={p.image} emoji={p.emoji} className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <input value={p.name} onChange={(e) => updateProduct(p.id, "name", e.target.value)}
-                      className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-sm font-semibold" placeholder="Nom du produit" />
-                    <input value={p.desc} onChange={(e) => updateProduct(p.id, "desc", e.target.value)}
-                      className="w-full border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="Description" />
-                    <div className="flex gap-2">
-                      <input type="number" step="0.1" value={p.price} onChange={(e) => updateProduct(p.id, "price", parseFloat(e.target.value) || 0)}
-                        className="w-20 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" style={{ fontFamily: FONT_MONO }} />
-                      <input value={p.image || ""} onChange={(e) => updateProduct(p.id, "image", e.target.value)}
-                        className="flex-1 border border-[#EADFC7] rounded-lg px-2 py-1 text-xs" placeholder="URL image ou vidéo" />
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {EMOJIS.map((e) => (
-                        <button key={e} onClick={() => updateProduct(p.id, "emoji", e)}
-                          className={`text-lg px-1.5 rounded ${p.emoji === e ? "bg-[#EADFC7]" : ""}`}>{e}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <button onClick={() => removeProduct(p.id)} className="text-[#B65C4A] shrink-0"><Trash2 size={18} /></button>
-                </div>
-              </div>
+              <ProductAdminRow key={p.id} p={p} update={updateProduct} remove={removeProduct} />
             ))}
             <button onClick={addProduct} className="w-full py-3 rounded-2xl border-2 border-dashed border-[#EADFC7] text-[#8A7F6E] text-sm font-semibold" style={{ fontFamily: FONT_BODY }}>
               + Ajouter un produit
@@ -515,17 +610,19 @@ export default function App() {
   const ContactIcon = contactIcon(state.contact.type);
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
-  const total = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const total = cart.reduce((s, i) => s + i.unitPrice * i.qty, 0);
 
-  const addToCart = (product, qty) => {
+  const addToCart = (product, qty, variant) => {
+    const unitPrice = variant ? variant.price : product.price;
+    const key = product.id + (variant ? `-${variant.label}` : "");
     setCart((prev) => {
-      const existing = prev.find((i) => i.product.id === product.id);
-      if (existing) return prev.map((i) => (i.product.id === product.id ? { ...i, qty: i.qty + qty } : i));
-      return [...prev, { product, qty }];
+      const existing = prev.find((i) => i.key === key);
+      if (existing) return prev.map((i) => (i.key === key ? { ...i, qty: i.qty + qty } : i));
+      return [...prev, { key, product, qty, variant, unitPrice }];
     });
   };
-  const updateQty = (id, qty) => {
-    setCart((prev) => (qty <= 0 ? prev.filter((i) => i.product.id !== id) : prev.map((i) => (i.product.id === id ? { ...i, qty } : i))));
+  const updateQty = (key, qty) => {
+    setCart((prev) => (qty <= 0 ? prev.filter((i) => i.key !== key) : prev.map((i) => (i.key === key ? { ...i, qty } : i))));
   };
   const handleSaveAll = async (newState, newPin) => {
     setState(newState);
